@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Клеточный автомат - научная работа Бергер Ирины, аспирантки мехмата МГУ</title>
+    <style>
+        .input-ca-form {
+            width: 20px;
+            height: 20px;
+            margin: 3px;
+        }
+        
+        .ca-cell {
+            width: 20px;
+            height: 20px;
+            border: 1px solid grey;
+        }
+    </style>
+</head>
+
+<body>
+    <h3 id="input-ca-title">Введите начальное состояние автомата</h3>
+    <div id="input-ca"></div>
+    <button id="input-ca-go" onClick="ca.create();ca.clear();ca.print();
+        document.getElementById('input-ca-go').disabled=true;">Рассчитать</button>
+    <hr>
+    <div id="view-ca">
+        <button id="view-ca-next-step" onClick="ca.nextStep();ca.print();">Следующий шаг</button>
+        <div id="view-ca-table"></div>
+    </div>
+
+    <script>
+        'use strict';
+
+        class Cell {
+            constructor(value, value2, step, neighbours, coordinates) {
+                if (typeof value === 'string') {
+                    this.value = [];
+                    for (let i = 0; i <= step; i++) //???
+                        this.value[i] = [value, value2]; //
+                } else {
+                    throw "Значение, присваиваемое ячейке при создании, не строка";
+                    return;
+                }
+                if (typeof neighbours === 'object') {
+                    this.neighbours = neighbours; //по ссылке?                
+                } else {
+                    throw "Объект соседей при создании ячейки - не объект";
+                    return;
+                }
+                this.coordinates = coordinates;
+                //console.log('New cell on coordinates (' + coordinates.x + ',' + coordinates.y + ') with value ' + value);
+            }
+            print() {
+                console.log('Cell on coordinates (' + this.coordinates.x + ',' + this.coordinates.y + ') with value ');
+                console.log(this.value);
+                console.log('u=');
+                if (this.neighbours.u)
+                    console.log(this.neighbours.u.value);
+                else
+                    console.log('0');
+
+                console.log('r=');
+                if (this.neighbours.r)
+                    console.log(this.neighbours.r.value);
+                else
+                    console.log('0');
+
+                console.log('d=');
+                if (this.neighbours.d)
+                    console.log(this.neighbours.d.value);
+                else
+                    console.log('0');
+
+                console.log('l=');
+                if (this.neighbours.l)
+                    console.log(this.neighbours.l.value);
+                else
+                    console.log('0');
+            }
+            hasNullNeighbours() { //что делает эта функция?
+                let flag = 0;
+                for (let key in this.neighboursGet()) {
+                    if (this.neighboursGet()[key] === null) {
+                        flag = 1;
+                    }
+                }
+                if (flag === 0) {
+                    return false;
+                } else {
+                    return true;
+                }
+            }
+            neighbourGet(neighbour1, neighbour2) {
+                if (neighbour2 === undefined) {
+                    return this.neighbours[neighbour1]; //?
+                }
+                if (this.neighbours === null) {
+                    return null;
+                }
+                if (this.neighbours[neighbour1] === null) {
+                    return null;
+                }
+                if (this.neighbours[neighbour1].neighbours[neighbour2] !== undefined) { //?
+                    return this.neighbours[neighbour1].neighbours[neighbour2];
+                } else {
+                    return null;
+                }
+            }
+            neighboursGet() {
+                return this.neighbours;
+            }
+            lastValueGet() {
+                return this.value[this.value.length - 1];
+            }
+            valueGet(step) {
+                let s = '';
+                if (this.value === undefined)
+                    throw 'valueGet: value on this undefined';
+                if (this.value[step] === undefined) {
+                    for (let i = 0; i < this.value.length; i++) {
+                        s += ' ' + this.value[i][0] + ',' + this.value[i][1] + ' ';
+                    }
+
+                    console.log(s);
+                    throw 'valueGet: value on this step ' + step + ' undefined';
+                }
+                return this.value[step];
+            }
+            neighbourSet(cell, neighbourDirection) {
+                this.neighbours[neighbourDirection] = cell;
+            }
+            neighboursSet(neighbours) {
+                this.neighbours = neighbours;
+            }
+            valueIsNull() {
+                if (this.value[this.value.length - 1][0] === '0' && this.value[this.value.length - 1][0] === '0') {
+                    //console.log('valueIsNull');
+                    return true;
+                } else {
+                    // console.log('no valueIsNull');
+                    return false;
+                }
+            }
+            nextValueSet(c1, c2) {
+                if (typeof c1 !== 'string' || typeof c2 !== 'string') {
+                    throw "nextValueSet: новое значение ячейки не строка";
+                    return;
+                }
+                //console.log('cell ' + this.coordinates.x + ',' + this.coordinates.y + ' has value ' + c + 'on ' + this.value.length + 'step');
+                this.value[this.value.length] = [c1, c2];
+                if (!this.valueIsNull() && this.hasNullNeighbours()) {
+                    //console.log('cell ' + this.coordinates.x + ',' + this.coordinates.y + ' has null neighbours and now grow');
+                    this.grow(this);
+                }
+            }
+            edgeCell(direction) {
+                let tmpCell = this;
+                while (tmpCell.neighbourGet(direction) !== null) {
+                    tmpCell = tmpCell.neighbourGet(direction);
+                }
+                return tmpCell;
+            }
+            isZero() {
+                let flag = true;
+                for (let i = 0; i < this.value.length; i++) {
+                    if (this.value[i][0] != '0' || this.value[i][1] != '0')
+                        flag = false;
+                }
+                return flag;
+            }
+            addZeros(step) {
+                if (this.isZero()) {
+                    while (this.value.length < step + 1) {
+                        this.nextValueSet('0', '0');
+                    }
+                }
+            }
+            growRow(direction) {
+                //console.log('growRow to direction ' + direction);
+                if (this.neighboursGet()[direction] !== null) {
+                    throw "GrowRow: Ячейка собирается расти в сторону, но там уже что-то есть";
+                    return;
+                }
+                let tmpCell = this,
+                    goDirection = '',
+                    goReverseDirection = '';
+                switch (direction) {
+                    case 'l':
+                    case 'r':
+                        goDirection = 'u';
+                        goReverseDirection = 'd';
+                        break;
+                    case 'u':
+                    case 'd':
+                        goDirection = 'l';
+                        goReverseDirection = 'r';
+                        break;
+                }
+                //console.log('growRow goDirection=' + goDirection + ' goReverseDirection=' + goReverseDirection);
+                while (tmpCell.neighbourGet(goDirection) !== null) {
+                    tmpCell = tmpCell.neighbourGet(goDirection);
+                }
+                let topCell = tmpCell;
+                //console.log('growRow edgeCell=' + tmpCell.coordinates.x + ',' + tmpCell.coordinates.y);
+                let neighbours = null,
+                    coordinates = null;
+                let newCell = null;
+
+                do {
+                    if (direction === 'l') {
+                        neighbours = {
+                            l: null,
+                            r: tmpCell,
+                            u: tmpCell.neighbourGet('u', direction),
+                            d: null //Переписать заново
+                        };
+                        coordinates = {
+                            x: tmpCell.coordinates.x - 1,
+                            y: tmpCell.coordinates.y
+                        };
+                    }
+                    if (direction === 'r') {
+                        neighbours = {
+                            l: tmpCell,
+                            r: null,
+                            u: tmpCell.neighbourGet('u', direction),
+                            d: null //переписать
+                        };
+                        coordinates = {
+                            x: tmpCell.coordinates.x + 1,
+                            y: tmpCell.coordinates.y
+                        };
+                    }
+                    if (direction === 'u') {
+                        neighbours = {
+                            l: tmpCell.neighbourGet('l', direction),
+                            r: null, //
+                            u: null,
+                            d: tmpCell
+                        };
+                        coordinates = {
+                            x: tmpCell.coordinates.x,
+                            y: tmpCell.coordinates.y + 1
+                        };
+                    }
+                    if (direction === 'd') {
+                        neighbours = {
+                            l: tmpCell.neighbourGet('l', direction),
+                            r: null, //
+                            u: tmpCell,
+                            d: null
+                        };
+                        coordinates = {
+                            x: tmpCell.coordinates.x,
+                            y: tmpCell.coordinates.y - 1
+                        };
+                    }
+
+                    //                    console.log("GrowRow: New cell at coordinates " + coordinates.x + ',' + coordinates.y);
+                    newCell = new Cell('0', '0', tmpCell.value.length - 1, neighbours, coordinates); //STEP????
+                    tmpCell.neighbourSet(newCell, direction);
+                    //случай с одной клеткой разбираем отдельно
+                    if (tmpCell.neighbourGet(goReverseDirection) === null) {
+                        break;
+                    }
+                    tmpCell = tmpCell.neighbourGet(goReverseDirection);
+                } while (true);
+                //Устанавливаем нижние или правые соседи, потому что они у нас не установлены
+                let tmpCell2 = null;
+                tmpCell = tmpCell.neighbourGet(direction);
+                do {
+                    if (tmpCell == null) {
+                        break;
+                    }
+                    tmpCell.neighbourSet(tmpCell2, goReverseDirection);
+                    tmpCell2 = tmpCell;
+                    if (tmpCell.neighbourGet(goDirection) === null) {
+                        break;
+                    }
+                    tmpCell = tmpCell.neighbourGet(goDirection);
+                } while (true);
+            }
+            grow() {
+                //console.log('grow cell ' + this.coordinates.x + ',' + this.coordinates.y);
+                if (!this.hasNullNeighbours()) {
+                    throw "Grow: Ячейка, которая собирается расти, не имеет null соседей";
+                    return;
+                }
+                if ( /*this.lastValueGet() === '0'*/ this.valueIsNull()) {
+                    console.log("Grow: Растёт нулевая ячейка");
+                    return;
+                }
+                for (let i = 0; i < 4; i++) {
+                    if (this.neighboursGet()['l'] === null) {
+                        //console.log('Grow: left');
+                        this.growRow('l');
+                        //alert('grow: cell ' + this.coordinates.x + ',' + this.coordinates.y + ' has l null');
+                        //                        console.log(this);
+                        //ca.print();
+                    }
+                    if (this.neighboursGet()['r'] === null) {
+                        //console.log('Grow: right');
+                        this.growRow('r');
+                        //alert('grow: cell ' + this.coordinates.x + ',' + this.coordinates.y + ' has r null');
+                        //                        console.log(this);
+                        //ca.print();
+                    }
+                    if (this.neighboursGet()['u'] === null) {
+                        //console.log('Grow: up');
+                        this.growRow('u');
+                        //alert('grow: cell ' + this.coordinates.x + ',' + this.coordinates.y + ' has u null');
+                        //                        console.log(this);
+                        //ca.print();
+                    }
+                    if (this.neighboursGet()['d'] === null) {
+                        //console.log('Grow: down');
+                        this.growRow('d');
+                        //alert('grow: cell ' + this.coordinates.x + ',' + this.coordinates.y + ' has d null');
+                        //                        console.log(this);
+                        //ca.print();
+                    }
+                }
+            }
+        }
+
+        let ca = {
+            root: null,
+            step: 0,
+            startInputLength: 17,
+            //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            f(cell, step) {
+                if (cell === null) {
+                    console.log('f: cell === null');
+                    return;
+                }
+
+                //Определяем соседей
+                let r = '',
+                    l = '',
+                    u = '',
+                    d = '',
+                    lu = '',
+                    ld = '',
+                    ru = '',
+                    rd = '',
+                    neighbours = cell.neighboursGet(),
+                    c = cell.lastValueGet();
+                if (neighbours === undefined) {
+                    throw 'f: neighbours undefined';
+                }
+                if (neighbours.r !== null) {
+                    r = neighbours.r.valueGet(step);
+                } else
+                    r = ['0', '0'];
+                if (neighbours.l !== null)
+                    l = neighbours.l.valueGet(step);
+                else
+                    l = ['0', '0'];
+                if (neighbours.u !== null)
+                    u = neighbours.u.valueGet(step);
+                else
+                    u = ['0', '0'];
+                if (neighbours.d !== null)
+                    d = neighbours.d.valueGet(step);
+                else
+                    d = ['0', '0'];
+                if (cell.neighbourGet('l', 'u') === null) {
+                    lu = ['0', '0'];
+                } else {
+                    lu = cell.neighbourGet('l', 'u').valueGet(step);
+                }
+                if (cell.neighbourGet('l', 'd') === null) {
+                    ld = ['0', '0'];
+                } else {
+                    ld = cell.neighbourGet('l', 'd').valueGet(step);
+                }
+                if (cell.neighbourGet('r', 'u') === null) {
+                    ru = ['0', '0'];
+                } else {
+                    ru = cell.neighbourGet('r', 'u').valueGet(step);
+                }
+                if (cell.neighbourGet('r', 'd') === null) {
+                    rd = ['0', '0'];
+                } else {
+                    rd = cell.neighbourGet('r', 'd').valueGet(step);
+                }
+                let answer = '';
+                let answer2 = '';
+                let tmp = 0,
+                    tmp2 = 0;
+                //cell.print();
+                //Возвращаемое значение
+
+                ///////////////////////////////////////////////////////////////////////////
+
+				//(тут алгоритм должен быть)
+
+                //иначе оставляем всё как есть
+                if (answer === '')
+                    answer = c[0];
+                if (answer2 === '')
+                    answer2 = c[1];
+
+                /////////////////////////////////////////////////////////////////////////////////////////
+
+                if (tmp > 1) {
+                    console.log("THIS CELL HAS TMP > 1");
+                    cell.print();
+                    alert('tmp>1');
+
+                }
+                if (tmp2 > 1) {
+                    console.log("THIS CELL HAS TMP2 > 1");
+                    cell.print();
+                    alert('tmp2>1');
+
+                }
+                // if (answer !== cell.lastValueGet())
+                //     console.log(`for cell (${cell.coordinates.x},${cell.coordinates.y}) c=${c},r=${r},l=${l},u=${u},d=${d} NEW value ${answer}`);
+                /*
+                if (r === '1') {
+                    console.log(`for cell (${cell.coordinates.x},${cell.coordinates.y}) r=1`);
+                    console.log(`for cell (${cell.coordinates.x},${cell.coordinates.y}) r neighbour is (${neighbours.r.coordinates.x},${neighbours.r.coordinates.y})`);
+                }
+                */
+                //console.log(answer + ',' + answer2);
+                return [answer, answer2];
+            },
+            //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+            create() {
+                let tmpCell = this.root,
+                    newCell = null;
+                let cellsArray = [
+                    [this.root]
+                ];
+                for (let i = 1; i < this.startInputLength; i++) {
+                    cellsArray[i] = [];
+                }
+                for (let i = 0; i < this.startInputLength; i++) {
+                    for (let j = 0; j < this.startInputLength; j++) {
+                        const inputEl = document.getElementById('input-' + j + '-' + i);
+                        newCell = new Cell(inputEl.value, '0', 0, { //так нельзя, потому что, если равно еденице, то оно не растёт
+                            l: null,
+                            r: null,
+                            u: null,
+                            d: null
+                        }, {
+                            x: j,
+                            y: i
+                        });
+                        cellsArray[i][j] = newCell;
+                    }
+                }
+                this.root = cellsArray[0][0];
+                let neighbour = {
+                    l: null,
+                    r: null,
+                    u: null,
+                    d: null
+                };
+                for (let i = 0; i < this.startInputLength; i++) {
+                    for (let j = 0; j < this.startInputLength; j++) {
+
+                        if (i === 0) {
+                            neighbour.u = null;
+                        } else {
+                            neighbour.u = cellsArray[i - 1][j];
+                        }
+                        if (i === this.startInputLength - 1) {
+                            neighbour.d = null;
+                        } else {
+                            neighbour.d = cellsArray[i + 1][j];
+                        }
+                        if (j === 0) {
+                            neighbour.l = null;
+                        } else {
+                            neighbour.l = cellsArray[i][j - 1];
+                        }
+                        if (j === this.startInputLength - 1) {
+                            neighbour.r = null;
+                        } else {
+                            neighbour.r = cellsArray[i][j + 1];
+                        }
+                        cellsArray[i][j].neighboursSet(Object.assign({}, neighbour));
+                        //console.log('set ' + i + ',' + j + ' cell');
+                    }
+                }
+                for (let i = 0; i < this.startInputLength; i++) {
+                    for (let j = 0; j < this.startInputLength; j++) {
+                        if ((i === 0 || j === 0 || i === this.startInputLength - 1 || j === this.startInputLength - 1) &&
+                            /*cellsArray[i][j].lastValueGet() !== '0'*/
+                            !cellsArray[i][j].valueIsNull()) {
+                            cellsArray[i][j].grow();
+                            //console.log('grow ' + i + ',' + j + ' cell');
+                        }
+                    }
+                }
+                //console.log('create: end');
+            },
+            print() {
+                let s = '';
+                let tmpCell = null;
+                if (this.root !== null) {
+                    tmpCell = this.root.edgeCell('l').edgeCell('u');
+                } else {
+                    console.log('root is null');
+                    return;
+                }
+                s += '<table>';
+                do {
+                    s += '<tr>';
+                    do {
+                        let s1 = tmpCell.lastValueGet()[0];
+                        let s2 = tmpCell.lastValueGet()[1];
+                        let x = tmpCell.coordinates.x;
+                        let y = tmpCell.coordinates.y;
+                        if (tmpCell.lastValueGet()[0] !== '0') {
+                            s1 = '<b>' + s1 + '</b>';
+                        }
+                        if (tmpCell.lastValueGet()[1] !== '0') {
+                            s2 = '<b>' + s2 + '</b>';
+                        }
+                        s += '<td class="ca-cell"><span style="color:#c0c0c0">' + x + ',' + y + '</span> ' + s1 + ',' + s2 + '</td>';
+                        if (tmpCell.neighbourGet('r') !== null) {
+                            tmpCell = tmpCell.neighbourGet('r');
+                        } else {
+                            break;
+                        }
+                    } while (true);
+                    if (tmpCell.neighbourGet('d') !== null) {
+                        tmpCell = tmpCell.neighbourGet('d').edgeCell('l');
+                    } else {
+                        break;
+                    }
+                    s += '</tr>';
+                } while (true);
+                s += '</table>';
+                const inputEl = document.getElementById('view-ca-table');
+                inputEl.innerHTML = s + '<hr>' + inputEl.innerHTML;
+                //console.log(s);
+            },
+            nextStep() {
+                console.log('------------------------------------------------------------------------------');
+                let tmpCell = null,
+                    tmpCell2 = null;
+                if (this.root !== null) {
+                    tmpCell = this.root.edgeCell('l').edgeCell('u');
+                    tmpCell2 = tmpCell;
+                } else {
+                    console.log('root is null');
+                    return;
+                }
+                do {
+                    do {
+                        tmpCell2.addZeros(this.step);
+                        if (tmpCell2.neighbourGet('r') !== null) {
+                            tmpCell2 = tmpCell2.neighbourGet('r');
+                        } else {
+                            break;
+                        }
+                    } while (true);
+                    if (tmpCell2.neighbourGet('d') !== null) {
+                        tmpCell2 = tmpCell2.neighbourGet('d').edgeCell('l');
+                    } else {
+                        break;
+                    }
+                } while (true);
+
+                do {
+                    do {
+                        //console.log(tmpCell);
+                        //Если все значения ячейки - нули, и при этом одного значения до шага не хватает, то просто добавим его
+                        tmpCell.addZeros(this.step);
+                        if (tmpCell.value.length === this.step + 1) { //???
+                            let tmp = this.f(tmpCell, this.step);
+                            tmpCell.nextValueSet(tmp[0], tmp[1]);
+                        }
+                        //console.log('nextStep: cell ' + tmpCell.coordinates.x + ',' + tmpCell.coordinates.y + ' new value=' + tmpCell.lastValueGet());
+                        if (tmpCell.neighbourGet('r') !== null) {
+                            tmpCell = tmpCell.neighbourGet('r');
+                        } else {
+                            break;
+                        }
+                    } while (true);
+                    if (tmpCell.neighbourGet('d') !== null) {
+                        tmpCell = tmpCell.neighbourGet('d').edgeCell('l');
+                    } else {
+                        break;
+                    }
+                } while (true);
+                this.step++;
+                console.log('new step=' + this.step);
+                console.log('------------------------------------------------------------------------------');
+            },
+            clear() {
+                const inputEl = document.getElementById('view-ca-table');
+                inputEl.innerHTML = '';
+                console.log('Cleared');
+            }
+        }
+
+
+        let inputLength = ca.startInputLength,
+            s = '';
+        for (let i = 0; i < inputLength; i++) {
+            for (let j = 0; j < inputLength; j++) {
+                s += '<input type="text" value="0" class="input-ca-form" id="input-' + j + '-' + i + '">';
+            }
+            s += '<br>';
+        }
+        const inputEl = document.getElementById('input-ca');
+        inputEl.innerHTML = s;
+    </script>
+</body>
+
+</html>
